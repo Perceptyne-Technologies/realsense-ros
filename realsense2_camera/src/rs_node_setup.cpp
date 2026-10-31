@@ -495,6 +495,10 @@ void BaseRealSenseNode::startUpdatedSensors()
                     if (sensor->rs2::sensor::is<rs2::depth_sensor>())
                     {
                         _depth_scale_meters = sensor->as<rs2::depth_sensor>().get_depth_scale();
+                        double units(ROS_DEPTH_SCALE);
+                        _node.get_parameter(create_graph_resource_name(module_name) + ".depth_units", units);
+                        _ros_depth_scale = units;
+                        ROS_INFO_STREAM("Depth unit: device " << _depth_scale_meters << " m, published " << _ros_depth_scale << " m per count");
                     }
                 }
             }

@@ -265,8 +265,7 @@ void BaseRealSenseNode::setupFilters()
 
 cv::Mat& BaseRealSenseNode::fix_depth_scale(const cv::Mat& from_image, cv::Mat& to_image)
 {
-    static const float meter_to_mm = 0.001f;
-    if (fabs(_depth_scale_meters - meter_to_mm) < 1e-6)
+    if (fabs(_depth_scale_meters - _ros_depth_scale) <= 1e-3 * _ros_depth_scale)
     {
         to_image = from_image;
         return to_image;
@@ -297,7 +296,7 @@ cv::Mat& BaseRealSenseNode::fix_depth_scale(const cv::Mat& from_image, cv::Mat& 
         p_to = to_image.ptr<uint16_t>(i);
         for ( j = 0; j < nCols; ++j)
         {
-            p_to[j] = p_from[j] * _depth_scale_meters / meter_to_mm;
+            p_to[j] = p_from[j] * _depth_scale_meters / _ros_depth_scale;
         }
     }
     return to_image;

@@ -40,9 +40,12 @@ namespace realsense2_camera
                 T option_value, const std::string& option_description, const std::string& description_addition);
             template<class T>
             void set_parameter(rs2::options sensor, rs2_option option, const std::string& module_name, const std::string& description_addition="");
+            void set_depth_units_parameter(rs2::options sensor, const std::string& module_name);
+            bool apply_depth_units(rs2::options sensor);
 
         private:
             std::shared_ptr<Parameters> _parameters;
             std::vector<std::string> _parameters_names;
+            double _depth_units = 0;  // meters per count; 0 when the sensor has no settable depth unit
     };
 }

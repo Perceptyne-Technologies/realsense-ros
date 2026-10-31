@@ -312,6 +312,7 @@ namespace realsense2_camera
 
         std::string _json_file_path;
         float _depth_scale_meters;
+        float _ros_depth_scale = ROS_DEPTH_SCALE;  // unit of the published depth counts
         float _clipping_distance;
 
         double _linear_accel_cov;

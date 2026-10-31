@@ -15,6 +15,8 @@
 #include <sensor_params.h>
 #include <constants.h>
 #include <iomanip>
+#include <cmath>
+#include <stdexcept>
 
 namespace realsense2_camera
 {
@@ -201,9 +203,12 @@ void SensorParams::set_parameter(rs2::options sensor, rs2_option option, const s
     T new_val;
     try
     {
-        new_val = (_parameters->setParam<T>(option_name, option_value, [option, sensor](const rclcpp::Parameter& parameter)
+        new_val = (_parameters->setParam<T>(option_name, option_value, [this, option, sensor](const rclcpp::Parameter& parameter)
                     {
                         param_set_option<T>(sensor, option, parameter);
+                        // A preset rewrites the depth table, including the depth unit.
+                        if (option == RS2_OPTION_VISUAL_PRESET)
+                            apply_depth_units(sensor);
                     }, parameter_descriptor));
         _parameters_names.push_back(option_name);
     }
@@ -223,6 +228,54 @@ void SensorParams::set_parameter(rs2::options sensor, rs2_option option, const s
         {
             ROS_WARN_STREAM("Failed to set value to sensor: " << option_name << " = " << option_value << "[" << option_range.min << ", " << option_range.max << "]\n" << e.what());            
         }
+    }
+}
+
+// Consumers interpret the published counts with the depth unit, so it only changes with a node
+// restart. (Not descriptor.read_only: read-only parameters cannot be undeclared on teardown.)
+void SensorParams::set_depth_units_parameter(rs2::options sensor, const std::string& module_name)
+{
+    const std::string name(module_name + ".depth_units");
+    const rs2::option_range range = sensor.get_option_range(RS2_OPTION_DEPTH_UNITS);
+    rcl_interfaces::msg::ParameterDescriptor descriptor;
+    descriptor.description = "Meters per count of the published depth images. Startup only; re-applied after visual_preset changes.";
+    const double units = _parameters->setParam<double>(name, ROS_DEPTH_SCALE, [this, name](const rclcpp::Parameter& parameter)
+        {
+            if (_depth_units > 0 && parameter.get_value<double>() != _depth_units)
+                throw std::runtime_error(name + " is set at startup only: restart the camera node to change it");
+        }, descriptor);
+    _parameters_names.push_back(name);
+    if (!(units >= range.min && units <= range.max))
+    {
+        std::stringstream msg;
+        msg << name << "=" << units << " is outside the device range [" << range.min << ", " << range.max << "]";
+        throw std::invalid_argument(msg.str());
+    }
+    _depth_units = units;
+    if (!apply_depth_units(sensor))
+        throw std::runtime_error("Failed to set " + name);
+}
+
+bool SensorParams::apply_depth_units(rs2::options sensor)
+{
+    if (_depth_units <= 0)
+        return true;
+    try
+    {
+        sensor.set_option(RS2_OPTION_DEPTH_UNITS, _depth_units);
+        const float actual = sensor.get_option(RS2_OPTION_DEPTH_UNITS);
+        if (std::abs(actual - _depth_units) > 1e-3 * _depth_units)
+        {
+            ROS_ERROR_STREAM("Device depth unit is " << actual << " m after setting " << _depth_units << " m");
+            return false;
+        }
+        ROS_INFO_STREAM("Device depth unit set to " << actual << " m");
+        return true;
+    }
+    catch(const std::exception& e)
+    {
+        ROS_ERROR_STREAM("Failed to set depth unit " << _depth_units << " m: " << e.what());
+        return false;
     }
 }
 
@@ -252,20 +305,7 @@ void SensorParams::registerDynamicOptions(rs2::options sensor, const std::string
             {
                 if (i == RS2_OPTION_DEPTH_UNITS)
                 {
-                    rs2::option_range op_range = sensor.get_option_range(option);
-                    if (ROS_DEPTH_SCALE >= op_range.min && ROS_DEPTH_SCALE <= op_range.max)
-                    {
-                        try
-                        {
-                            sensor.set_option(option, ROS_DEPTH_SCALE);
-                        }
-                        catch(const std::exception& e)
-                        {
-                            std::cout << "Failed to set value: " << e.what() << std::endl;
-                        }
-                        op_range.min = ROS_DEPTH_SCALE;
-                        op_range.max = ROS_DEPTH_SCALE;
-                    }
+                    set_depth_units_parameter(sensor, module_name);
                 }
                 else
                 {
